@@ -1,4 +1,3 @@
-library(AnnotationFilter)
 library(AnnotationHub)
 library(AnnotationDbi)
 library(BiocSingular)
@@ -33,7 +32,7 @@ library(rlang)
 library(stringr)
 library(tidyr)
 
-UMAP_plot <- function(feature_color, prefix, sce_object,
+umap_plot <- function(feature_color, prefix, sce_object,
                       data_type = "counts", var_type = "continuous",
                       facet_var = NULL, facet_ncol = NULL, suffix = "", no_legend = FALSE,
                       label_var = NULL, scale_name = NULL, file_name = NULL, plot_name = NULL,
@@ -183,7 +182,7 @@ filter_osca <- function(sce_object, gene_annot, filter_cells = TRUE) {
     sce_object_gene_cv2_top <- getTopHVGs(sce_object_gene_cv2, var.field = "ratio", var.threshold = 1.0)
     sce_object_gene_shared <- intersect(sce_object_gene_var_top, sce_object_gene_cv2_top)
 
-    rowSubset(sce_object_filtered, "HVG") <- sce_object_gene_shared
+    rowSubset(sce_object_filtered, "hvg") <- sce_object_gene_shared
     sce_object_filtered
 }
 
@@ -205,7 +204,7 @@ npc_donoho <- function(original_data) {
 
 # Compute doublet scores using number of PCs identified above.  k = 50 is default parameter
 compute_doublets <- function(sce_object, n_neighbors = 50L) {
-    sce_object_hvg <- sce_object[rowSubset(sce_object, "HVG"), ]
+    sce_object_hvg <- sce_object[rowSubset(sce_object, "hvg"), ]
     npc_normcounts <- normalize_osca(sce_object_hvg) %>% npc_donoho()
     print(str_c("Chose ", npc_normcounts, " PCs"))
     doublet_scores <- computeDoubletDensity(sce_object_hvg, k = n_neighbors, dims = npc_normcounts, BSPARAM = ExactParam())
@@ -214,7 +213,7 @@ compute_doublets <- function(sce_object, n_neighbors = 50L) {
 }
 
 estimate_corral <- function(sce_object) {
-    standardized_data <- counts(sce_object)[rowSubset(sce_object, "HVG"), ] %>% corral_preproc() %>% apply(1L, RankNorm) %>% t()
+    standardized_data <- counts(sce_object)[rowSubset(sce_object, "hvg"), ] %>% corral_preproc() %>% apply(1L, RankNorm) %>% t()
     pca_standardized <- pca(standardized_data)
     n_pcs <- chooseGavishDonoho(standardized_data, var.explained = pca_standardized$sdev^2.0, noise = 1.0)
     print(str_c("Chose ", n_pcs, " PCs"))
@@ -246,19 +245,19 @@ leiden_clustering <- function(sce_object, reduced_dim = "corral", k = 10L, resol
 }
 
 qc_umap_plots <- function(prefix, sce_object, qc_var, ...) {
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata", ...)
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata",
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata", ...)
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata",
               width = 24.0, height = 15.0, facet_var = "Sample", facet_ncol = 4L, suffix = "_sample_names", ...)
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata",
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata",
               width = 24.0, height = 15.0, facet_var = "Status", facet_ncol = 2L, suffix = "_status", ...)
 }
 
 qc_plots <- function(sce_object, prefix) {
     qc_umap_plots(prefix, sce_object, "label", var_type = "discrete", scale_name = "Cluster", file_name = "clusters", label_var = "label", plot_name = "", no_legend = TRUE)
-    UMAP_plot("Sample", prefix, sce_object, data_type = "metadata", var_type = "discrete",
+    umap_plot("Sample", prefix, sce_object, data_type = "metadata", var_type = "discrete",
               width = 24.0, height = 15.0, facet_var = "Sample", facet_ncol = 4L,
               file_name = "sample_names", no_legend = TRUE, plot_name = "Sample")
-    UMAP_plot("Status", prefix, sce_object, data_type = "metadata", var_type = "discrete",
+    umap_plot("Status", prefix, sce_object, data_type = "metadata", var_type = "discrete",
               width = 24.0, height = 15.0, facet_var = "Status", facet_ncol = 2L,
               file_name = "status", no_legend = TRUE, plot_name = "Status")
 
@@ -272,8 +271,8 @@ qc_plots <- function(sce_object, prefix) {
 }
 
 merge_batches <- function(sce_object1, sce_object2) {
-    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "HVG")]
-    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "HVG")]
+    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "hvg")]
+    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "hvg")]
     shared_genes <- intersect(sce_object1_hvgs, sce_object2_hvgs)
 
     sce_object1 <- sce_object1[shared_genes, ]
@@ -435,7 +434,7 @@ cluster_metrics_adj <- function(sce_object) {
 
     metrics_long <- select(metrics, Barcode, Celltype, Status, log_sum_adj, log_detected_adj, logit_percent_mt_adj, z_silhouette_width_adj) %>%
         pivot_longer(log_sum_adj:z_silhouette_width_adj, names_to = "metric_name", values_to = "metric")
-    
+
     metrics_lm <- group_by(metrics_long, Celltype, metric_name) %>% group_modify(cluster_lm_adj)
     metrics_lm$OR <- exp(metrics_lm$estimate)
     metrics_lm$OR_CI95hi <- exp(metrics_lm$conf.high)
@@ -448,12 +447,12 @@ merge_counts <- function(sce_object1, sce_object2, sce_merged) {
 
     sce_object1 <- sce_object1[shared_genes, ]
     sce_object1_metadata <- rowData(sce_object1) %>% as_tibble()
-    sce_object1_metadata_select <- select(sce_object1_metadata, -HVG)
+    sce_object1_metadata_select <- select(sce_object1_metadata, -hvg)
     rowData(sce_object1) <- DataFrame(sce_object1_metadata_select)
     reducedDim(sce_object1, "corral") <- NULL
     sce_object2 <- sce_object2[shared_genes, ]
     sce_object2_metadata <- rowData(sce_object2) %>% as_tibble()
-    sce_object2_metadata_select <- select(sce_object2_metadata, -HVG)
+    sce_object2_metadata_select <- select(sce_object2_metadata, -hvg)
     rowData(sce_object2) <- DataFrame(sce_object2_metadata_select)
     reducedDim(sce_object2, "corral") <- NULL
 
@@ -635,17 +634,17 @@ all_samples_metadata_v2 <- colData(all_samples_sce_leiden_v2) %>%
 qc_plots(all_samples_sce_leiden_v3, "all_samples_v3/")
 qc_plots(all_samples_sce_leiden_v2, "all_samples_v2/")
 
-UMAP_plot("CLDN5", "all_samples_v3/", all_samples_sce_leiden_v3)
-UMAP_plot("CLDN5", "all_samples_v2/", all_samples_sce_leiden_v2)
+umap_plot("CLDN5", "all_samples_v3/", all_samples_sce_leiden_v3)
+umap_plot("CLDN5", "all_samples_v2/", all_samples_sce_leiden_v2)
 
-UMAP_plot("CALD1", "all_samples_v3/", all_samples_sce_leiden_v3)
-UMAP_plot("CALD1", "all_samples_v2/", all_samples_sce_leiden_v2)
+umap_plot("CALD1", "all_samples_v3/", all_samples_sce_leiden_v3)
+umap_plot("CALD1", "all_samples_v2/", all_samples_sce_leiden_v2)
 
-UMAP_plot("CD68", "all_samples_v3/", all_samples_sce_leiden_v3)
-UMAP_plot("CD68", "all_samples_v2/", all_samples_sce_leiden_v2)
+umap_plot("CD68", "all_samples_v3/", all_samples_sce_leiden_v3)
+umap_plot("CD68", "all_samples_v2/", all_samples_sce_leiden_v2)
 
-UMAP_plot("CD3D", "all_samples_v3/", all_samples_sce_leiden_v3)
-UMAP_plot("CD3D", "all_samples_v2/", all_samples_sce_leiden_v2)
+umap_plot("CD3D", "all_samples_v3/", all_samples_sce_leiden_v3)
+umap_plot("CD3D", "all_samples_v2/", all_samples_sce_leiden_v2)
 
 all_samples_sce_immune_v3 <- all_samples_sce_leiden_v3[, !is_in(all_samples_sce_leiden_v3$label, c(17L, 18L))]
 all_samples_sce_immune_v2 <- all_samples_sce_leiden_v2
@@ -709,8 +708,8 @@ marker_genes <- c(
 )
 # nolint end
 
-catch <- map(marker_genes, UMAP_plot, "all_samples_v3/", all_samples_sce_leiden_v3)
-catch <- map(marker_genes, UMAP_plot, "all_samples_v2/", all_samples_sce_leiden_v2)
+catch <- map(marker_genes, umap_plot, "all_samples_v3/", all_samples_sce_leiden_v3)
+catch <- map(marker_genes, umap_plot, "all_samples_v2/", all_samples_sce_leiden_v2)
 
 #nolint start
 all_samples_v2_labels <- c(
@@ -775,8 +774,8 @@ write_rds(all_samples_sce_macrophages_v2, "all_samples_sce_macrophages_v2.rda")
 other_cells_v3 <- !str_detect(colData(all_samples_sce_celltypes_v3)$Celltype, fixed("T-cells")) & !str_detect(colData(all_samples_sce_celltypes_v3)$Celltype, fixed("Macrophages"))
 other_cells_v2 <- !str_detect(colData(all_samples_sce_celltypes_v2)$Celltype, fixed("T-cells")) & !str_detect(colData(all_samples_sce_celltypes_v2)$Celltype, fixed("Macrophages"))
 
-all_samples_sce_merge_tcells <- read_rds("./t_cell_clustering/all_samples_sce_merge_celltypes.rda")
-all_samples_sce_merge_macrophages <- read_rds("./macrophage_clustering/all_samples_sce_merge_celltypes.rda")
+all_samples_sce_merge_tcells <- read_rds("../t_cell_clustering/all_samples_sce_merge_celltypes.rda")
+all_samples_sce_merge_macrophages <- read_rds("../macrophage_clustering/all_samples_sce_merge_celltypes.rda")
 subclustered_cells <- union(all_samples_sce_merge_tcells$Cell_ID, all_samples_sce_merge_macrophages$Cell_ID)
 
 all_samples_sce_final_v3 <- all_samples_sce_celltypes_v3[, other_cells_v3 | is_in(colData(all_samples_sce_celltypes_v3)$Cell_ID, subclustered_cells)]
@@ -790,11 +789,11 @@ all_samples_sce_merge_umap <- estimate_umap(all_samples_sce_merge, "corrected")
 all_samples_sce_merge_leiden <- leiden_clustering(all_samples_sce_merge_umap, "corrected", resolution = 1.0)
 qc_plots(all_samples_sce_merge_leiden, "all_samples_merge/")
 
-catch <- map(marker_genes, UMAP_plot, "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
+catch <- map(marker_genes, umap_plot, "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
 
 # Load reference data and use SingleR to classify cells
 monaco <- MonacoImmuneData()
-lm22_se <- read_rds("../new_code/lm22_se.rda")
+lm22_se <- read_rds("../../new_code/lm22_se.rda")
 
 all_samples_sce_merge_singler <- singler_annotation(all_samples_sce_merge_leiden, monaco, "monaco_celltypes", "all_samples_merge/monaco_labels") %>%
     singler_annotation(lm22_se, "lm22_celltypes", "all_samples_merge/lm22_labels")
@@ -838,19 +837,19 @@ tcells_celltypes <- colData(all_samples_sce_merge_tcells) %>% as_tibble() %>% se
 macrophages_celltypes <- colData(all_samples_sce_merge_macrophages) %>% as_tibble() %>% select(Cell_ID, Celltype, silhouette_width)
 subclustered_celltypes <- bind_rows(tcells_celltypes, macrophages_celltypes)
 
-all_samples_sce_merge_tcells_orig <- all_samples_sce_merge_celltypes[,str_detect(all_samples_sce_merge_celltypes$Rough_celltype, "T-cells/NK cells")]
+all_samples_sce_merge_tcells_orig <- all_samples_sce_merge_celltypes[, str_detect(all_samples_sce_merge_celltypes$Rough_celltype, fixed("T-cells/NK cells"))]
 all_samples_sce_merge_tcells_metadata <- colData(all_samples_sce_merge_tcells_orig) %>% as_tibble() %>% select(-silhouette_width)
 all_samples_sce_merge_tcells_labels <- left_join(all_samples_sce_merge_tcells_metadata, tcells_celltypes) %>% filter(!is.na(Celltype))
 all_samples_sce_merge_tcells_filter <- all_samples_sce_merge_tcells_orig[, is_in(all_samples_sce_merge_tcells_orig$Cell_ID, all_samples_sce_merge_tcells_labels$Cell_ID)]
 colData(all_samples_sce_merge_tcells_filter) <- DataFrame(all_samples_sce_merge_tcells_labels)
 
-all_samples_sce_merge_macrophages_orig <- all_samples_sce_merge_celltypes[,str_detect(all_samples_sce_merge_celltypes$Rough_celltype, "Macrophages/cDCs")]
+all_samples_sce_merge_macrophages_orig <- all_samples_sce_merge_celltypes[, str_detect(all_samples_sce_merge_celltypes$Rough_celltype, fixed("Macrophages/cDCs"))]
 all_samples_sce_merge_macrophages_metadata <- colData(all_samples_sce_merge_macrophages_orig) %>% as_tibble() %>% select(-silhouette_width)
 all_samples_sce_merge_macrophages_labels <- left_join(all_samples_sce_merge_macrophages_metadata, macrophages_celltypes) %>% filter(!is.na(Celltype))
 all_samples_sce_merge_macrophages_filter <- all_samples_sce_merge_macrophages_orig[, is_in(all_samples_sce_merge_macrophages_orig$Cell_ID, all_samples_sce_merge_macrophages_labels$Cell_ID)]
 colData(all_samples_sce_merge_macrophages_filter) <- DataFrame(all_samples_sce_merge_macrophages_labels)
 
-all_samples_sce_merge_other <- all_samples_sce_merge_celltypes[,!str_detect(all_samples_sce_merge_celltypes$Rough_celltype, "T-cells/NK cells") & !str_detect(all_samples_sce_merge_celltypes$Rough_celltype, "Macrophages/cDCs")]
+all_samples_sce_merge_other <- all_samples_sce_merge_celltypes[, !str_detect(all_samples_sce_merge_celltypes$Rough_celltype, fixed("T-cells/NK cells")) & !str_detect(all_samples_sce_merge_celltypes$Rough_celltype, fixed("Macrophages/cDCs"))]
 colData(all_samples_sce_merge_other)$Celltype <- colData(all_samples_sce_merge_other)$Rough_celltype
 
 all_samples_sce_merge_celltypes2 <- cbind(all_samples_sce_merge_tcells_filter, all_samples_sce_merge_macrophages_filter, all_samples_sce_merge_other)

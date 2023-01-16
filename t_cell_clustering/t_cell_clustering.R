@@ -64,12 +64,12 @@ filter_osca <- function(sce_object, gene_annot = NULL, filter_cells = TRUE, iter
     sce_object_gene_cv2_top <- getTopHVGs(sce_object_gene_cv2, var.field = "ratio", var.threshold = 1.0)
     sce_object_gene_shared <- intersect(sce_object_gene_var_top, sce_object_gene_cv2_top)
 
-    rowSubset(sce_object_filtered, "HVG") <- sce_object_gene_shared
+    rowSubset(sce_object_filtered, "hvg") <- sce_object_gene_shared
     sce_object_filtered
 }
 
 estimate_corral <- function(sce_object) {
-    standardized_data <- counts(sce_object)[rowSubset(sce_object, "HVG"),] %>% corral_preproc() %>% apply(1L, RankNorm) %>% t()
+    standardized_data <- counts(sce_object)[rowSubset(sce_object, "hvg"), ] %>% corral_preproc() %>% apply(1L, RankNorm) %>% t()
     pca_standardized <- pca(standardized_data)
     n_pcs <- chooseGavishDonoho(standardized_data, var.explained = pca_standardized$sdev^2.0, noise = 1.0)
     print(str_c("Chose ", n_pcs, " PCs"))
@@ -94,13 +94,13 @@ leiden_clustering <- function(sce_object, reduced_dim = "corral", k = 10L, resol
     sce_object
 }
 
-UMAP_plot <- function(feature_color, prefix, sce_object,
+umap_plot <- function(feature_color, prefix, sce_object,
                       data_type = "counts", var_type = "continuous",
                       facet_var = NULL, facet_ncol = NULL, suffix = "", no_legend = FALSE,
                       label_var = NULL, scale_name = NULL, file_name = NULL, plot_name = NULL,
                       width = 12.0, height = 10.0) {
     umap_data <- reducedDim(sce_object, type = "umap", withDimnames = TRUE)
-    plot_data <- colData(sce_object) %>% 
+    plot_data <- colData(sce_object) %>%
         as_tibble() %>%
         bind_cols(as_tibble(umap_data))
 
@@ -220,19 +220,19 @@ qc_boxplot <- function(qc_var, prefix, sce_object, x_var = "label", fill_var = N
 
 
 qc_umap_plots <- function(prefix, sce_object, qc_var, ...) {
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata", ...)
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata",
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata", ...)
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata",
               width = 24.0, height = 15.0, facet_var = "Sample", facet_ncol = 4L, suffix = "_sample_names", ...)
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata",
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata",
               width = 24.0, height = 15.0, facet_var = "Status", facet_ncol = 2L, suffix = "_status", ...)
 }
 
 qc_plots <- function(sce_object, prefix) {
     qc_umap_plots(prefix, sce_object, "label", var_type = "discrete", scale_name = "Cluster", file_name = "clusters", label_var = "label", plot_name = "", no_legend = TRUE)
-    UMAP_plot("Sample", prefix, sce_object, data_type = "metadata", var_type = "discrete",
+    umap_plot("Sample", prefix, sce_object, data_type = "metadata", var_type = "discrete",
               width = 24.0, height = 15.0, facet_var = "Sample", facet_ncol = 4L,
               file_name = "sample_names", no_legend = TRUE, plot_name = "Sample")
-    UMAP_plot("Status", prefix, sce_object, data_type = "metadata", var_type = "discrete",
+    umap_plot("Status", prefix, sce_object, data_type = "metadata", var_type = "discrete",
               width = 24.0, height = 15.0, facet_var = "Status", facet_ncol = 2L,
               file_name = "status", no_legend = TRUE, plot_name = "Status")
 
@@ -254,8 +254,8 @@ npc_donoho <- function(original_data) {
 }
 
 merge_batches <- function(sce_object1, sce_object2) {
-    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "HVG")]
-    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "HVG")]
+    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "hvg")]
+    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "hvg")]
     shared_genes <- intersect(sce_object1_hvgs, sce_object2_hvgs)
 
     sce_object1 <- sce_object1[shared_genes, ]
@@ -283,8 +283,8 @@ merge_batches <- function(sce_object1, sce_object2) {
 }
 
 # Read data and add gene annotation information
-all_samples_sce_tcells_v3 <- read_rds("../all_samples_sce_tcells_v3.rda")
-all_samples_sce_tcells_v2 <- read_rds("../all_samples_sce_tcells_v2.rda")
+all_samples_sce_tcells_v3 <- read_rds("../all_clustering/all_samples_sce_tcells_v3.rda")
+all_samples_sce_tcells_v2 <- read_rds("../all_clustering/all_samples_sce_tcells_v2.rda")
 
 all_samples_sce_filtered_v3 <- filter_osca(all_samples_sce_tcells_v3, filter_cells = FALSE)
 all_samples_sce_filtered_v2 <- filter_osca(all_samples_sce_tcells_v2, filter_cells = FALSE)
@@ -339,8 +339,8 @@ marker_genes <- c(
 )
 #nolint end
 
-catch <- map(marker_genes, UMAP_plot, "all_samples_v3/", all_samples_sce_leiden_v3)
-catch <- map(marker_genes, UMAP_plot, "all_samples_v2/", all_samples_sce_leiden_v2)
+catch <- map(marker_genes, umap_plot, "all_samples_v3/", all_samples_sce_leiden_v3)
+catch <- map(marker_genes, umap_plot, "all_samples_v2/", all_samples_sce_leiden_v2)
 
 all_samples_sce_merge <- merge_batches(all_samples_sce_leiden_v3, all_samples_sce_leiden_v2)
 write_rds(all_samples_sce_merge, "all_samples_sce_merge.rda")
@@ -352,7 +352,7 @@ write_rds(all_samples_sce_merge_leiden, "all_samples_sce_merge_leiden.rda")
 
 qc_plots(all_samples_sce_merge_leiden, "all_samples_merge/")
 
-catch <- map(marker_genes, UMAP_plot, "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
+catch <- map(marker_genes, umap_plot, "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
 
 # Find all markers
 all_samples_markers <- findMarkers(all_samples_sce_merge_leiden, test = "t", direction = "up", pval.type = "some", assay.type = "reconstructed", row.data = rowData(all_samples_sce_merge_leiden))

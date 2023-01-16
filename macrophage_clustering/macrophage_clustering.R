@@ -40,7 +40,7 @@ filter_osca <- function(sce_object, gene_annot = NULL, filter_cells = TRUE, iter
             DataFrame()
     }
 
-    if(filter_cells == TRUE) {
+    if (filter_cells == TRUE) {
         if (iterative_filter == TRUE) {
             sce_object_filtered <- iterative_filter(sce_object)
         } else {
@@ -70,12 +70,12 @@ filter_osca <- function(sce_object, gene_annot = NULL, filter_cells = TRUE, iter
     sce_object_gene_cv2_top <- getTopHVGs(sce_object_gene_cv2, var.field = "ratio", var.threshold = 1.0)
     sce_object_gene_shared <- intersect(sce_object_gene_var_top, sce_object_gene_cv2_top)
 
-    rowSubset(sce_object_filtered, "HVG") <- sce_object_gene_shared
+    rowSubset(sce_object_filtered, "hvg") <- sce_object_gene_shared
     sce_object_filtered
 }
 
 estimate_corral <- function(sce_object) {
-    standardized_data <- counts(sce_object)[rowSubset(sce_object, "HVG"), ] %>% corral_preproc() %>% apply(1L, RankNorm) %>% t()
+    standardized_data <- counts(sce_object)[rowSubset(sce_object, "hvg"), ] %>% corral_preproc() %>% apply(1L, RankNorm) %>% t()
     pca_standardized <- pca(standardized_data)
     n_pcs <- chooseGavishDonoho(standardized_data, var.explained = pca_standardized$sdev^2.0, noise = 1.0)
     print(str_c("Chose ", n_pcs, " PCs"))
@@ -100,7 +100,7 @@ leiden_clustering <- function(sce_object, reduced_dim = "corral", k = 10L, resol
     sce_object
 }
 
-UMAP_plot <- function(feature_color, prefix, sce_object,
+umap_plot <- function(feature_color, prefix, sce_object,
                       data_type = "counts", var_type = "continuous",
                       facet_var = NULL, facet_ncol = NULL, suffix = "", no_legend = FALSE,
                       label_var = NULL, scale_name = NULL, file_name = NULL, plot_name = NULL,
@@ -226,19 +226,19 @@ qc_boxplot <- function(qc_var, prefix, sce_object, x_var = "label", fill_var = N
 
 
 qc_umap_plots <- function(prefix, sce_object, qc_var, ...) {
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata", ...)
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata",
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata", ...)
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata",
               width = 24.0, height = 15.0, facet_var = "Sample", facet_ncol = 4L, suffix = "_sample_names", ...)
-    UMAP_plot(qc_var, prefix, sce_object, data_type = "metadata",
+    umap_plot(qc_var, prefix, sce_object, data_type = "metadata",
               width = 24.0, height = 15.0, facet_var = "Status", facet_ncol = 2L, suffix = "_status", ...)
 }
 
 qc_plots <- function(sce_object, prefix) {
     qc_umap_plots(prefix, sce_object, "label", var_type = "discrete", scale_name = "Cluster", file_name = "clusters", label_var = "label", plot_name = "", no_legend = TRUE)
-    UMAP_plot("Sample", prefix, sce_object, data_type = "metadata", var_type = "discrete",
+    umap_plot("Sample", prefix, sce_object, data_type = "metadata", var_type = "discrete",
               width = 24.0, height = 15.0, facet_var = "Sample", facet_ncol = 4L,
               file_name = "sample_names", no_legend = TRUE, plot_name = "Sample")
-    UMAP_plot("Status", prefix, sce_object, data_type = "metadata", var_type = "discrete",
+    umap_plot("Status", prefix, sce_object, data_type = "metadata", var_type = "discrete",
               width = 24.0, height = 15.0, facet_var = "Status", facet_ncol = 2L,
               file_name = "status", no_legend = TRUE, plot_name = "Status")
 
@@ -260,8 +260,8 @@ npc_donoho <- function(original_data) {
 }
 
 merge_batches <- function(sce_object1, sce_object2) {
-    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "HVG")]
-    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "HVG")]
+    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "hvg")]
+    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "hvg")]
     shared_genes <- intersect(sce_object1_hvgs, sce_object2_hvgs)
 
     sce_object1 <- sce_object1[shared_genes, ]
@@ -293,7 +293,7 @@ merge_counts <- function(sce_object1, sce_object2, sce_merged) {
 
     sce_object1 <- sce_object1[shared_genes, is_in(colData(sce_object1)$Cell_ID, colData(sce_merged)$Cell_ID)]
     sce_object1_rowdata <- rowData(sce_object1) %>% as_tibble()
-    sce_object1_rowdata_select <- select(sce_object1_rowdata, -HVG)
+    sce_object1_rowdata_select <- select(sce_object1_rowdata, -hvg)
     rowData(sce_object1) <- DataFrame(sce_object1_rowdata_select)
     sce_object1_coldata <- colData(sce_object1) %>% as_tibble() %>% select(Cell_ID) %>% DataFrame()
     colData(sce_object1) <- sce_object1_coldata
@@ -301,7 +301,7 @@ merge_counts <- function(sce_object1, sce_object2, sce_merged) {
 
     sce_object2 <- sce_object2[shared_genes, is_in(colData(sce_object2)$Cell_ID, colData(sce_merged)$Cell_ID)]
     sce_object2_rowdata <- rowData(sce_object2) %>% as_tibble()
-    sce_object2_rowdata_select <- select(sce_object2_rowdata, -HVG)
+    sce_object2_rowdata_select <- select(sce_object2_rowdata, -hvg)
     rowData(sce_object2) <- DataFrame(sce_object2_rowdata_select)
     sce_object2_coldata <- colData(sce_object2) %>% as_tibble() %>% select(Cell_ID) %>% DataFrame()
     colData(sce_object2) <- sce_object2_coldata
@@ -345,8 +345,8 @@ limma_dge <- function(pseudobulk_object) {
 }
 
 # Read data and add gene annotation information
-all_samples_sce_macros_v3 <- read_rds("../all_samples_sce_macrophages_v3.rda")
-all_samples_sce_macros_v2 <- read_rds("../all_samples_sce_macrophages_v2.rda")
+all_samples_sce_macros_v3 <- read_rds("../all_clustering/all_samples_sce_macrophages_v3.rda")
+all_samples_sce_macros_v2 <- read_rds("../all_clustering/all_samples_sce_macrophages_v2.rda")
 
 annotation_hub <- AnnotationHub()
 ens_104 <- annotation_hub[["AH95744"]]
@@ -420,8 +420,8 @@ marker_genes <- c(
 )
 # nolint end
 
-catch <- map(marker_genes, UMAP_plot, "all_samples_v3/", all_samples_sce_leiden_v3)
-catch <- map(marker_genes, UMAP_plot, "all_samples_v2/", all_samples_sce_leiden_v2)
+catch <- map(marker_genes, umap_plot, "all_samples_v3/", all_samples_sce_leiden_v3)
+catch <- map(marker_genes, umap_plot, "all_samples_v2/", all_samples_sce_leiden_v2)
 
 all_samples_sce_merge <- merge_batches(all_samples_sce_macro_v3, all_samples_sce_macro_v2)
 write_rds(all_samples_sce_merge, "all_samples_sce_merge.rda")
@@ -432,14 +432,14 @@ all_samples_sce_merge_leiden <- leiden_clustering(all_samples_sce_merge_umap, "c
 
 qc_plots(all_samples_sce_merge_leiden, "all_samples_merge/")
 
-catch <- map(marker_genes, UMAP_plot, "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
-UMAP_plot("MORN4", "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
+catch <- map(marker_genes, umap_plot, "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
+umap_plot("MORN4", "all_samples_merge/", all_samples_sce_merge_leiden, "reconstructed")
 
 all_samples_sce_merge_macros <- all_samples_sce_merge[, !is_in(all_samples_sce_merge_leiden$label, c(10L, 11L, 13L))]
 all_samples_sce_merge_macros_umap <- estimate_umap(all_samples_sce_merge_macros, "corrected")
 all_samples_sce_merge_macros_leiden <- leiden_clustering(all_samples_sce_merge_macros_umap, "corrected", resolution = 1.0)
 qc_plots(all_samples_sce_merge_macros_leiden, "all_samples_merge_macros/")
-catch <- map(marker_genes, UMAP_plot, "all_samples_merge_macros/", all_samples_sce_merge_macros_leiden, "reconstructed")
+catch <- map(marker_genes, umap_plot, "all_samples_merge_macros/", all_samples_sce_merge_macros_leiden, "reconstructed")
 
 # Find all markers
 all_samples_markers <- findMarkers(all_samples_sce_merge_leiden, test = "t", direction = "up", pval.type = "some", assay.type = "reconstructed", row.data = rowData(all_samples_sce_merge_leiden))
