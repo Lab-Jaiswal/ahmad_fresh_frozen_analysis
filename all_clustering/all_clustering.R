@@ -29,8 +29,10 @@ library(magrittr)
 library(dplyr)
 library(ggplot2)
 library(rlang)
+library(readr)
 library(stringr)
 library(tidyr)
+library(tidyverse)
 
 umap_plot <- function(feature_color, prefix, sce_object,
                       data_type = "counts", var_type = "continuous",
@@ -200,7 +202,6 @@ npc_donoho <- function(original_data) {
     n_pcs <- chooseGavishDonoho(original_data, var.explained = pca_scaled$sdev^2.0, noise = 1.0)
     n_pcs
 }
-
 
 # Compute doublet scores using number of PCs identified above.  k = 50 is default parameter
 compute_doublets <- function(sce_object, n_neighbors = 50L) {
@@ -457,6 +458,10 @@ merge_counts <- function(sce_object1, sce_object2, sce_merged) {
     reducedDim(sce_object2, "corral") <- NULL
 
     shared_object <- cbind(sce_object1, sce_object2)
+    shared_object
+}
+
+subset_object <- function(shared_object, sce_merged) {
     shared_object_subset <- shared_object[, is_in(colData(shared_object)$Cell_ID, colData(sce_merged)$Cell_ID)]
     merged_metadata <- colData(sce_merged) %>% as_tibble()
     colData(shared_object_subset) %<>% as_tibble %>% select(Cell_ID) %>% left_join(merged_metadata) %>% DataFrame()
@@ -866,12 +871,13 @@ write_rds(all_samples_metrics_vglm, "all_samples_metrics_vglm.rda")
 
 all_samples_metrics_adj <- cluster_metrics_adj(all_samples_sce_merge_celltypes2)
 
-all_samples_sce_counts <- merge_counts(all_samples_sce_filtered_v3, all_samples_sce_filtered_v2, all_samples_sce_merge_celltypes2)
+# Merge counts
+all_samples_sce_counts <- merge_counts(all_samples_sce_filtered_v3, all_samples_sce_filtered_v2)
+all_samples_sce_counts_subset <- subset_counts(all_samples_sce_merge_celltypes2)
 
-all_samples_metrics_agg <- cluster_metrics_agg(all_samples_sce_counts)
+all_samples_metrics_agg <- cluster_metrics_agg(all_samples_sce_counts_subset)
 write_rds(all_samples_metrics_agg, "all_samples_metrics_agg.rda")
 
-# Merge counts
 v3_original_metadata <- colData(all_samples_sce_v3) %>% as_tibble()
 v3_original_metadata$chemistry <- "v3"
 v2_original_metadata <- colData(all_samples_sce_v2) %>% as_tibble()
@@ -929,7 +935,9 @@ all_cell_counts <- colData(all_samples_sce_merge_celltypes2) %>%
     group_by(batch, Tissue, Status, Sample) %>%
     summarise(n_all_cells = n())
 
-all_counts_merge <- left_join(all_cell_counts, t_cell_counts) %>% left_join(macrophage_cell_counts)
+all_counts_merge <- left_join(all_cell_counts, t_cell_counts) %>%
+    left_join(macrophage_cell_counts) %>%
+    left_join(b_cell_counts)
 all_counts_merge$not_t_cells <- all_counts_merge$n_all_cells - all_counts_merge$n_t_cells
 all_counts_merge$not_macrophages <- all_counts_merge$n_all_cells - all_counts_merge$n_macrophages
 
@@ -961,3 +969,65 @@ all_samples_da_vglm <- colData(all_samples_sce_merge_celltypes2) %>%
     group_map(sample_da_vglm) %>%
     bind_rows()
 write_rds(all_samples_da_vglm, "all_samples_da_vglm.rda")
+
+# GEO submission
+colData(all_samples_sce_v2)$chemistry <- "v2"
+colData(all_samples_sce_v3)$chemistry <- "v3"
+all_samples_counts <- cbind(all_samples_sce_v2, all_samples_sce_v3)
+rowData(all_samples_counts) %<>% as.data.frame %>% left_join(gene_annot) %>% DataFrame()
+mito_genes <- which(rowData(all_samples_counts)$SEQNAME == "MT")
+
+all_samples_counts_qc <- addPerCellQC(all_samples_counts, subset = list(mt = mito_genes))
+colData(all_samples_counts_qc)$log_sum <- log2(all_samples_counts_qc$sum)
+colData(all_samples_counts_qc)$log_detected <- log2(all_samples_counts_qc$detected)
+
+
+merged_metadata <- colData(all_samples_sce_merge_celltypes2) %>%
+    as_tibble() %>%
+    select(Cell_ID, doublet_scores:silhouette_width)
+
+colData(all_samples_counts_qc) %<>% as_tibble() %>% left_join(merged_metadata) %>% DataFrame()
+colData(all_samples_counts_qc)$Celltype %<>% as.character %>% replace_na("Removed by QC") %>% factor()
+
+colData(all_samples_counts_qc) %>% as_tibble() %>% write_tsv("all_samples_metadata.tsv")
+
+save_sample_counts <- function(sample_name, sce_object) {
+    sample_sce_object <- sce_object[, colData(sce_object)$Sample == sample_name]
+    sample_counts_table <- counts(sample_sce_object)
+    colnames(sample_counts_table) <- colData(sample_sce_object)$Cell_ID
+    as.matrix(sample_counts_table) %>% as_tibble(rownames = "ensembl_id") %>% write_tsv(str_c(sample_name, ".tsv"))
+}
+
+unique(colData(all_samples_counts_qc)$Sample) %>%
+    map(save_sample_counts, all_samples_counts_qc)
+
+# Flow cytometry analysis
+flow_cell_counts <- read_csv("./filtered_counts_with_flow_082222.csv") %>% filter(method == "flow")
+flow_cell_counts$all_cells <- select(flow_cell_counts, `B-cells`:Other) %>% as.matrix() %>% rowSums()
+
+flow_cell_counts_carotid <- filter(flow_cell_counts, str_detect(Sample, "ROB_2026|DTAN_4047"))
+t_cell_counts_flow_carotid_vglm <- vglm(cbind(`T-cells`, all_cells - `T-cells`) ~ fresh_frozen, family = betabinomial(lrho = "rhobitlink"), data = flow_cell_counts_carotid)
+t_cell_counts_flow_carotid_summary <- summary(t_cell_counts_flow_carotid_vglm, HDEtest = FALSE)
+t_cell_counts_flow_carotid_summary_df <- as_tibble(t_cell_counts_flow_carotid_summary@coef3, rownames = "term")
+t_cell_counts_flow_carotid_summary_df$OR <- exp(t_cell_counts_flow_carotid_summary_df$Estimate)
+
+macrophage_counts_carotid_vglm <- vglm(cbind(Myeloid, all_cells - Myeloid) ~ fresh_frozen, family = betabinomial(lrho = "rhobitlink"), data = flow_cell_counts_carotid)
+macrophage_counts_carotid_summary <- summary(macrophage_counts_carotid_vglm, HDEtest = FALSE)
+macrophage_counts_carotid_summary_df <- as_tibble(macrophage_counts_carotid_summary@coef3, rownames = "term")
+macrophage_counts_carotid_summary_df$OR <- exp(macrophage_counts_carotid_summary_df$Estimate)
+
+flow_cell_counts_coronary <- filter(flow_cell_counts, !is_in(Sample, c("ROB2026", "DTAN4047")))
+t_cell_counts_flow_coronary_vglm <- vglm(cbind(`T-cells`, all_cells - `T-cells`) ~ fresh_frozen, family = betabinomial(lrho = "rhobitlink"), data = flow_cell_counts_coronary)
+t_cell_counts_flow_coronary_summary <- summary(t_cell_counts_flow_coronary_vglm, HDEtest = FALSE)
+t_cell_counts_flow_coronary_summary_df <- as_tibble(t_cell_counts_flow_coronary_summary@coef3, rownames = "term")
+t_cell_counts_flow_coronary_summary_df$OR <- exp(t_cell_counts_flow_coronary_summary_df$Estimate)
+
+b_cell_counts_flow_coronary_vglm <- vglm(cbind(`B-cells`, all_cells - `B-cells`) ~ fresh_frozen, family = betabinomial(lrho = "rhobitlink"), data = flow_cell_counts_coronary)
+b_cell_counts_flow_coronary_summary <- summary(b_cell_counts_flow_coronary_vglm, HDEtest = FALSE)
+b_cell_counts_flow_coronary_summary_df <- as_tibble(b_cell_counts_flow_coronary_summary@coef3, rownames = "term")
+b_cell_counts_flow_coronary_summary_df$OR <- exp(b_cell_counts_flow_coronary_summary_df$Estimate)
+
+macrophage_counts_coronary_vglm <- vglm(cbind(Myeloid, all_cells - Myeloid) ~ fresh_frozen, family = betabinomial(lrho = "rhobitlink"), data = flow_cell_counts_coronary)
+macrophage_counts_coronary_summary <- summary(macrophage_counts_coronary_vglm, HDEtest = FALSE)
+macrophage_counts_coronary_summary_df <- as_tibble(macrophage_counts_coronary_summary@coef3, rownames = "term")
+macrophage_counts_coronary_summary_df$OR <- exp(macrophage_counts_coronary_summary_df$Estimate)
