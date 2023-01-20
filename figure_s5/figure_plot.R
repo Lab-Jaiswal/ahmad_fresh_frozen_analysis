@@ -1,4 +1,5 @@
 library(SingleCellExperiment)
+library(SummarizedExperiment)
 library(magick)
 library(cowplot)
 library(magrittr)
@@ -8,98 +9,82 @@ library(readr)
 library(rlang)
 library(tidyverse)
 
-qc_boxplot <- function(qc_var, plot_data, x_var = "label", fill_var = NULL,
-                       scale_name = NULL, y_label = NULL, angled_text = FALSE) {
-    if (!is.null(fill_var)) {
-        box_plot_aes <- aes(!!sym(x_var), !!sym(qc_var), fill = !!sym(fill_var))
-    } else {
-        box_plot_aes <- aes(!!sym(x_var), !!sym(qc_var))
-    }
+umap_plot <- function(feature_color, sce_object, data_type = "counts", var_type = "continuous") {
+    umap_data <- reducedDim(sce_object, type = "umap", withDimnames = TRUE)
+    plot_data <- colData(sce_object) %>%
+        as_tibble() %>%
+        bind_cols(as_tibble(umap_data))
 
-    box_plot <- ggplot(plot_data, box_plot_aes) +
-      geom_boxplot() +
-      theme_classic(base_family = "Noto Sans") +
-      theme(legend.text = element_text(size = 12.0),
-            legend.title = element_text(size = 13.0),
-            axis.text = element_text(size = 12.0),
-            axis.title = element_text(size = 12.0),
-            axis.title.x = element_blank(),
-            panel.border = element_rect(color = "black", fill = NA)
-      )
+    feature_plot <- "log_expr"
+    scale_name_final <- expression(paste(log[2.0], "(counts)"))
+    plot_name_final <- feature_color
+    gene_annot <- rowData(sce_object)
+    gene_row <- match(feature_color, gene_annot$Symbol)
 
-    if (angled_text) {
-        box_plot <- box_plot + theme(axis.text.x = element_text(angle = 45.0, hjust = 1.0))
-    }
+    assay_data <- assays(sce_object)
+    reconstructed_data <- as.matrix(assay_data$reconstructed)
+    plot_data$log_expr <- reconstructed_data[gene_row, ]
 
-    if (!is.null(y_label)) {
-        box_plot <- box_plot + ylab(y_label)
-    }
+    plot_data %<>% arrange(!!sym(feature_plot)) %>% as.data.frame()
 
-    if (!is.null(scale_name)) {
-        scale_name_final <- scale_name
-        box_plot <- box_plot + scale_fill_discrete(name = scale_name_final)
-    }
+    umap_plot <- ggplot(plot_data, aes(UMAP_1, UMAP_2, color = !!sym(feature_plot))) +
+        geom_point(size = 0.1) +
+        ggtitle(feature_color) +
+        theme_classic(base_family = "Noto Sans") +
+        xlab("UMAP 1") +
+        ylab("UMAP 2") +
+        theme(panel.border = element_rect(fill = NA),
+              plot.title = element_text(hjust = 0.5))
 
-    box_plot
+    umap_plot <- umap_plot + scale_color_gradient(low = "lightgrey", high = "blue", name = scale_name_final)
+
+    umap_plot
 }
 
 all_samples_annotated <- read_rds("../figure2/all_samples_annotated.rda")
 
-all_samples_metadata <- colData(all_samples_annotated) %>% as_tibble()
-all_samples_metadata$Celltype %<>% str_replace_all("macrophages", fixed("Mφ")) %>%
+figure_a <- umap_plot("APOE", all_samples_annotated, data_type = "reconstructed")
+
+plot_data <- colData(all_samples_annotated) %>% as_tibble()
+gene_annot <- rowData(all_samples_annotated)
+gene_row <- match("APOE", gene_annot$Symbol)
+assay_data <- assays(all_samples_annotated)
+reconstructed_data <- as.matrix(assay_data$reconstructed)
+plot_data$log_expr <- reconstructed_data[gene_row, ]
+plot_data_filter <- filter(plot_data, is_in(Celltype, c("Inflammatory Mφ", "Foam cells", "CD16+ monocytes", "cDCs", "LYVE1+ TR Mφ", "MHC-hi Mφ")))
+plot_data_filter$Celltype %<>% str_replace_all("macrophages", fixed("Mφ")) %>%
     factor(levels = c(
         "CD16+ monocytes",
         "MHC-hi Mφ",
         "Inflammatory Mφ",
         "LYVE1+ TR Mφ",
         "Foam cells",
-        "cDCs",
-        "Plasmacytoid DCs",
-        "XCR1+ DCs",
-        "CD4+ T-cells",
-        "CD8+ T-cells",
-        "Active NK cells",
-        "Resting NK cells",
-        "B-cells",
-        "Plasma cells",
-        "Basophils"
+        "cDCs"
     ))
 
-all_samples_metadata_subset <- filter(all_samples_metadata, is_in(Celltype, c("XCR1+ DCs", "Plasma cells", "Plasmacytoid DCs", "Basophils")))
-
-figure_a <- ggplot(all_samples_metadata_subset, aes(Status, fill = Celltype)) +
-    geom_bar(position = "fill", color = "black") +
-    facet_wrap(~ Tissue, ncol = 2L) +
-    theme_classic(base_family = "Noto Sans") +
-    theme(axis.title.x = element_blank(),
-        strip.background = element_blank(),
-        legend.text = element_text(size = 12.0),
+figure_b <- ggplot(plot_data_filter, aes(Celltype, log_expr)) +
+  geom_boxplot() +
+  ylab(expression(paste(log[2.0], "(counts)"))) +
+  theme_classic(base_family = "Noto Sans") +
+  theme(legend.text = element_text(size = 12.0),
         legend.title = element_text(size = 13.0),
         axis.text = element_text(size = 12.0),
         axis.title = element_text(size = 12.0),
-        strip.text = element_text(face = "bold", size = 14.0),
-        panel.background = element_rect(color = "black", fill = NA)) +
-    ylab("Relative Proportion")
-
-figure_b <- qc_boxplot("subsets_percent_mt_percent", all_samples_metadata_subset, x_var = "Celltype", fill_var = "Status",
-                       y_label = "% reads in MT genes", angled_text = TRUE)
-figure_c <- qc_boxplot("log_detected", all_samples_metadata_subset, x_var = "Celltype", fill_var = "Status",
-                       y_label = expression(paste(log[2.0], "(detected genes)")), angled_text = TRUE)
-figure_d <- qc_boxplot("log_sum", all_samples_metadata, x_var = "Celltype", fill_var = "Status",
-                       y_label = expression(paste(log[2.0], "(UMIs)")), angled_text = TRUE)
+        axis.title.x = element_blank(),
+        legend.position = "none",
+        panel.border = element_rect(color = "black", fill = NA),
+        axis.text.x = element_text(angle = 45.0, hjust = 1.0))
 
 figure <- ggdraw() +
-    draw_plot(figure_a, x = 0.23, y = 0.66, width = 0.54, height = 0.38)  +
-    draw_plot(figure_b, x = 0.06, y = 0.33, width = 0.44, height = 0.30) +
-    draw_plot(figure_c, x = 0.56, y = 0.33, width = 0.44, height = 0.30) +
-    draw_plot(figure_d, x = 0.01, y = 0.0, width = 0.99, height = 0.30) +
-    draw_label("A", size = 15.0, x = 0.22, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("B", size = 15.0, x = 0.05, y = 0.66, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("C", size = 15.0, x = 0.55, y = 0.66, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("D", size = 15.0, x = 0.0, y = 0.33, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold")
+    draw_plot(figure_a, x = 0.01, y = 0.0, width = 0.64, height = 1.0)  +
+    draw_plot(figure_b, x = 0.66, y = 0.2, width = 0.34, height = 0.60) +
+    draw_label("A", size = 15.0, x = 0.0, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
+    draw_label("B", size = 15.0, x = 0.65, y = 0.8, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold")
 
 figure_title <- ggdraw() +
-    draw_label(label = "Figure S5", x = 0.5, hjust = 0.5, size = 20.0, fontfamily = "Noto Sans", fontface = "bold")
+    draw_label(label = "Figure S5", x = 0.5, hjust = 0.5, size = 18.0, fontfamily = "Noto Sans", fontface = "bold")
 
 figure_grid <- plot_grid(figure_title, figure, ncol = 1L, rel_heights = c(0.1, 0.9))
-ggsave("figure_s5.pdf", figure_grid, width = 12.0, height = 12.0, units = "in", device = cairo_pdf)
+figure_grid_notitle <- plot_grid(figure, ncol = 1L)
+ggsave("figure_s5.pdf", figure_grid, width = 10.0, height = 6.0, units = "in", device = cairo_pdf)
+ggsave("figure_s5_notitle.pdf", figure_grid_notitle, width = 10.0, height = 6.0, units = "in", device = cairo_pdf)

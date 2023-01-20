@@ -1,88 +1,72 @@
 library(SingleCellExperiment)
-library(SummarizedExperiment)
-library(magick)
+library(Seurat)
 library(cowplot)
 library(magrittr)
-library(dplyr)
-library(ggplot2)
-library(readr)
-library(rlang)
 library(tidyverse)
 
-umap_plot <- function(feature_color, sce_object, data_type = "counts", var_type = "continuous") {
+umap_plot <- function(feature_color, sce_object, plot_name = NULL) {
     umap_data <- reducedDim(sce_object, type = "umap", withDimnames = TRUE)
     plot_data <- colData(sce_object) %>%
         as_tibble() %>%
         bind_cols(as_tibble(umap_data))
 
-    feature_plot <- "log_expr"
-    scale_name_final <- expression(paste(log[2.0], "(counts)"))
-    plot_name_final <- feature_color
-    gene_annot <- rowData(sce_object)
-    gene_row <- match(feature_color, gene_annot$Symbol)
+    plot_data %<>% arrange(Cell_ID) %>% as.data.frame()
+    plot_data$color_factor <- plot_data[[feature_color]]
+    plot_data$color_factor[!plot_data$show_cells] <- NA
+    plot_data[[feature_color]] %<>% str_replace_all("macrophages", fixed("Mφ")) %>% factor()
 
-    assay_data <- assays(sce_object)
-    reconstructed_data <- as.matrix(assay_data$reconstructed)
-    plot_data$log_expr <- reconstructed_data[gene_row, ]
-
-    plot_data %<>% arrange(!!sym(feature_plot)) %>% as.data.frame()
-
-    umap_plot <- ggplot(plot_data, aes(UMAP_1, UMAP_2, color = !!sym(feature_plot))) +
-        geom_point(size = 0.1) +
-        ggtitle(feature_color) +
+    umap_plot <- ggplot(data = plot_data, aes(UMAP_1, UMAP_2)) +
+        geom_point(color = "lightgray", size = 0.1) +
+        geom_point(aes(color = color_factor), size = 0.1) +
+        ggtitle(plot_name) +
         theme_classic(base_family = "Noto Sans") +
         xlab("UMAP 1") +
         ylab("UMAP 2") +
+        scale_color_discrete(na.value = "#00000000") +
         theme(panel.border = element_rect(fill = NA),
-              plot.title = element_text(hjust = 0.5))
+              plot.title = element_text(hjust = 0.5),
+              legend.position = "none")
 
-    umap_plot <- umap_plot + scale_color_gradient(low = "lightgrey", high = "blue", name = scale_name_final)
+    umap_plot %<>% LabelClusters(id = feature_color, color = "black", seed = 12345L, family = "Noto Sans")
 
     umap_plot
 }
 
 all_samples_annotated <- read_rds("../figure2/all_samples_annotated.rda")
 
-figure_a <- umap_plot("APOE", all_samples_annotated, data_type = "reconstructed")
+all_samples_1495 <- all_samples_annotated
+colData(all_samples_1495)$show_cells <- all_samples_annotated$Sample == "Fresh_1495" | all_samples_annotated$Sample == "Frozen_1495"
+all_samples_1667 <- all_samples_annotated
+colData(all_samples_1667)$show_cells <- all_samples_annotated$Sample == "Fresh_1667" | all_samples_annotated$Sample == "Frozen_1667"
+all_samples_1700 <- all_samples_annotated
+colData(all_samples_1700)$show_cells <- all_samples_annotated$Sample == "Fresh_1700" | all_samples_annotated$Sample == "Frozen_1700"
+all_samples_DTAN_4047 <- all_samples_annotated
+colData(all_samples_DTAN_4047)$show_cells <- all_samples_annotated$Sample == "Fresh_DTAN_4047" | all_samples_annotated$Sample == "Frozen_DTAN_4047"
+all_samples_ROB_2026 <- all_samples_annotated
+colData(all_samples_ROB_2026)$show_cells <- all_samples_annotated$Sample == "Fresh_ROB_2026" | all_samples_annotated$Sample == "Frozen_ROB_2026"
 
-plot_data <- colData(all_samples_annotated) %>% as_tibble()
-gene_annot <- rowData(all_samples_annotated)
-gene_row <- match("APOE", gene_annot$Symbol)
-assay_data <- assays(all_samples_annotated)
-reconstructed_data <- as.matrix(assay_data$reconstructed)
-plot_data$log_expr <- reconstructed_data[gene_row, ]
-plot_data_filter <- filter(plot_data, is_in(Celltype, c("Inflammatory Mφ", "Foam cells", "CD16+ monocytes", "cDCs", "LYVE1+ TR Mφ", "MHC-hi Mφ")))
-plot_data_filter$Celltype %<>% str_replace_all("macrophages", fixed("Mφ")) %>%
-    factor(levels = c(
-        "CD16+ monocytes",
-        "MHC-hi Mφ",
-        "Inflammatory Mφ",
-        "LYVE1+ TR Mφ",
-        "Foam cells",
-        "cDCs"
-    ))
-
-figure_b <- ggplot(plot_data_filter, aes(Celltype, log_expr)) +
-  geom_boxplot() +
-  ylab(expression(paste(log[2.0], "(counts)"))) +
-  theme_classic(base_family = "Noto Sans") +
-  theme(legend.text = element_text(size = 12.0),
-        legend.title = element_text(size = 13.0),
-        axis.text = element_text(size = 12.0),
-        axis.title = element_text(size = 12.0),
-        axis.title.x = element_blank(),
-        legend.position = "none",
-        panel.border = element_rect(color = "black", fill = NA),
-        axis.text.x = element_text(angle = 45.0, hjust = 1.0))
+figure_a <- umap_plot("Celltype", all_samples_1495, plot_name = "Coronary 1")
+figure_b <- umap_plot("Celltype", all_samples_1667, plot_name = "Coronary 2")
+figure_c <- umap_plot("Celltype", all_samples_1700, plot_name = "Coronary 3")
+figure_d <- umap_plot("Celltype", all_samples_DTAN_4047, plot_name = "Carotid 1")
+figure_e <- umap_plot("Celltype", all_samples_ROB_2026, plot_name = "Carotid 2")
 
 figure <- ggdraw() +
-    draw_plot(figure_a, x = 0.01, y = 0.0, width = 0.64, height = 1.0)  +
-    draw_plot(figure_b, x = 0.66, y = 0.2, width = 0.34, height = 0.60) +
+    draw_plot(figure_a, x = 0.01, y = 0.5, width = 0.32, height = 0.5) +
+    draw_plot(figure_b, x = 0.34, y = 0.5, width = 0.32, height = 0.5) +
+    draw_plot(figure_c, x = 0.67, y = 0.5, width = 0.32, height = 0.5) +
+    draw_plot(figure_d, x = 0.17, y = 0.0, width = 0.32, height = 0.5) +
+    draw_plot(figure_e, x = 0.52, y = 0.0, width = 0.32, height = 0.5) +
     draw_label("A", size = 15.0, x = 0.0, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("B", size = 15.0, x = 0.65, y = 0.8, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold")
+    draw_label("B", size = 15.0, x = 0.33, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
+    draw_label("C", size = 15.0, x = 0.66, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
+    draw_label("D", size = 15.0, x = 0.16, y = 0.5, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
+    draw_label("E", size = 15.0, x = 0.5, y = 0.5, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold")
 
 figure_title <- ggdraw() +
-    draw_label(label = "Figure S4", x = 0.5, hjust = 0.5, size = 18.0, fontfamily = "Noto Sans", fontface = "bold")
+draw_label(label = "Figure S4", x = 0.5, hjust = 0.5, size = 20.0, fontfamily = "Noto Sans", fontface = "bold")
 
-figure_grid <- plot_grid(figure_title, figure, ncol = 1L, rel_heights = c(0.1, 0.9))
-ggsave("figure_s4.pdf", figure_grid, width = 10.0, height = 6.0, units = "in", device = cairo_pdf)
+figure_grid <- plot_grid(figure_title, figure, ncol = 1L, rel_heights = c(0.05, 1.0))
+figure_grid_notitle <- plot_grid(figure, ncol = 1L)
+ggsave("figure_s4.pdf", figure_grid, width = 18.0, height = 12.0, units = "in", device = cairo_pdf)
+ggsave("figure_s4_notitle.pdf", figure_grid_notitle, width = 18.0, height = 12.0, units = "in", device = cairo_pdf)

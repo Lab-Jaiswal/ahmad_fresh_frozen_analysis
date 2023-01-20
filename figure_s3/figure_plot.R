@@ -2,6 +2,9 @@ library(SingleCellExperiment)
 library(Seurat)
 library(cowplot)
 library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(readr)
 library(tidyverse)
 
 umap_plot <- function(feature_color, sce_object, plot_name = NULL) {
@@ -32,39 +35,28 @@ umap_plot <- function(feature_color, sce_object, plot_name = NULL) {
     umap_plot
 }
 
-all_samples_annotated <- read_rds("../figure2/all_samples_annotated.rda")
+all_samples_sce_merge_celltypes <- read_rds("../frozen_clustering/all_samples_sce_merge_celltypes2.rda")
+colData(all_samples_sce_merge_celltypes)$Celltype %<>% str_replace_all("macrophages", factor("Mφ")) %>% factor()
+write_rds(all_samples_sce_merge_celltypes, "all_samples_annotated.rda")
 
-all_samples_1495 <- all_samples_annotated
-colData(all_samples_1495)$show_cells <- all_samples_annotated$Sample == "Fresh_1495" | all_samples_annotated$Sample == "Frozen_1495"
-all_samples_1667 <- all_samples_annotated
-colData(all_samples_1667)$show_cells <- all_samples_annotated$Sample == "Fresh_1667" | all_samples_annotated$Sample == "Frozen_1667"
-all_samples_1700 <- all_samples_annotated
-colData(all_samples_1700)$show_cells <- all_samples_annotated$Sample == "Fresh_1700" | all_samples_annotated$Sample == "Frozen_1700"
-all_samples_DTAN_4047 <- all_samples_annotated
-colData(all_samples_DTAN_4047)$show_cells <- all_samples_annotated$Sample == "Fresh_DTAN_4047" | all_samples_annotated$Sample == "Frozen_DTAN_4047"
-all_samples_ROB_2026 <- all_samples_annotated
-colData(all_samples_ROB_2026)$show_cells <- all_samples_annotated$Sample == "Fresh_ROB_2026" | all_samples_annotated$Sample == "Frozen_ROB_2026"
+all_samples_frozen_coronary <- all_samples_sce_merge_celltypes
+colData(all_samples_frozen_coronary)$show_cells <- all_samples_sce_merge_celltypes$Tissue == "Coronary" & all_samples_sce_merge_celltypes$Status == "Frozen"
+all_samples_frozen_carotid <- all_samples_sce_merge_celltypes
+colData(all_samples_frozen_carotid)$show_cells <- all_samples_sce_merge_celltypes$Tissue == "Carotid" & all_samples_sce_merge_celltypes$Status == "Frozen"
 
-figure_a <- umap_plot("Celltype", all_samples_1495, plot_name = "Coronary 1")
-figure_b <- umap_plot("Celltype", all_samples_1667, plot_name = "Coronary 2")
-figure_c <- umap_plot("Celltype", all_samples_1700, plot_name = "Coronary 3")
-figure_d <- umap_plot("Celltype", all_samples_DTAN_4047, plot_name = "Carotid 1")
-figure_e <- umap_plot("Celltype", all_samples_ROB_2026, plot_name = "Carotid 2")
+figure_a <- umap_plot("Celltype", all_samples_frozen_coronary, plot_name = "Frozen Coronary")
+figure_b <- umap_plot("Celltype", all_samples_frozen_carotid, plot_name = "Frozen Carotid")
 
 figure <- ggdraw() +
-    draw_plot(figure_a, x = 0.01, y = 0.5, width = 0.32, height = 0.5) +
-    draw_plot(figure_b, x = 0.34, y = 0.5, width = 0.32, height = 0.5) +
-    draw_plot(figure_c, x = 0.67, y = 0.5, width = 0.32, height = 0.5) +
-    draw_plot(figure_d, x = 0.17, y = 0.0, width = 0.32, height = 0.5) +
-    draw_plot(figure_e, x = 0.52, y = 0.0, width = 0.32, height = 0.5) +
+    draw_plot(figure_a, x = 0.01, y = 0.0, width = 0.49, height = 1.0) +
+    draw_plot(figure_b, x = 0.51, y = 0.0, width = 0.49, height = 1.0) +
     draw_label("A", size = 15.0, x = 0.0, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("B", size = 15.0, x = 0.33, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("C", size = 15.0, x = 0.66, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("D", size = 15.0, x = 0.16, y = 0.5, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold") +
-    draw_label("E", size = 15.0, x = 0.5, y = 0.5, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold")
+    draw_label("B", size = 15.0, x = 0.5, y = 1.0, hjust = 0.0, vjust = 1.0, fontfamily = "Noto Sans", fontface = "bold")
 
 figure_title <- ggdraw() +
-draw_label(label = "Figure S3", x = 0.5, hjust = 0.5, size = 20.0, fontfamily = "Noto Sans", fontface = "bold")
+draw_label(label = "Figure S3", x = 0.5, hjust = 0.5, size = 16.0, fontfamily = "Noto Sans", fontface = "bold")
 
-figure_grid <- plot_grid(figure_title, figure, ncol = 1L, rel_heights = c(0.05, 1.0))
-ggsave("figure_s3.pdf", figure_grid, width = 18.0, height = 12.0, units = "in", device = cairo_pdf)
+figure_grid <- plot_grid(figure_title, figure, ncol = 1L, rel_heights = c(0.1, 0.8))
+figure_grid_notitle <- plot_grid(figure, ncol = 1L)
+ggsave("figure_s3.pdf", figure_grid, width = 12.0, height = 6.0, units = "in", device = cairo_pdf)
+ggsave("figure_s3_notitle.pdf", figure_grid_notitle, width = 12.0, height = 6.0, units = "in", device = cairo_pdf)
