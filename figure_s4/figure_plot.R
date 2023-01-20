@@ -2,6 +2,9 @@ library(SingleCellExperiment)
 library(Seurat)
 library(cowplot)
 library(magrittr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
 library(tidyverse)
 
 umap_plot <- function(feature_color, sce_object, plot_name = NULL) {

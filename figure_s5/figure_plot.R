@@ -17,7 +17,6 @@ umap_plot <- function(feature_color, sce_object, data_type = "counts", var_type 
 
     feature_plot <- "log_expr"
     scale_name_final <- expression(paste(log[2.0], "(counts)"))
-    plot_name_final <- feature_color
     gene_annot <- rowData(sce_object)
     gene_row <- match(feature_color, gene_annot$Symbol)
 
