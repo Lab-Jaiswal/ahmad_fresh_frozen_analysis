@@ -136,16 +136,27 @@ setColWidths(wb = wb_s3, sheet = 2L, cols = seq_len(ncol(silhouette_width_agg)),
 saveWorkbook(wb = wb_s3, "table_s3.xlsx", overwrite = TRUE)
 
 # Table S4
-de_table_list <- read_rds("../macrophage_clustering/all_samples_limma_tibble.rda")
-names(de_table_list) %<>% str_replace_all("macrophages", fixed("mac"))
+de_table_list_mac <- read_rds("../macrophage_clustering/all_samples_limma_tibble.rda")
+names(de_table_list_mac) %<>% str_replace_all("macrophages", fixed("mac"))
 
-de_table_list_ordered <- de_table_list[c("Foam cells",
+de_table_list_ordered_mac <- de_table_list[c("Foam cells",
     "Inflammatory mac",
     "MHC-hi mac",
     "cDCs",
     "LYVE1+ TR mac",
     "CD16+ monocytes")
 ]
+
+de_table_list_t_cell <- read_rds("../t_cell_clustering/all_samples_limma_tibble.rda")
+names(de_table_list_mac) %<>% str_replace_all("macrophages", fixed("mac"))
+
+de_table_list_ordered_t_cell <- de_table_list_t_cell[c("Active NK cells",
+    "Resting NK cells",
+    "CD4+ T-cells",
+    "CD8+ T-cells")
+]
+
+de_table_list_ordered <- c(de_table_list_ordered_mac, de_table_list_ordered_t_cell)
 
 wb_s4 <- createWorkbook()
 
