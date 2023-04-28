@@ -21,6 +21,7 @@ library(magrittr)
 library(dplyr)
 library(ggplot2)
 library(stringr)
+library(tidyverse)
 
 add_celltype_labels <- function(sce_object, celltype_labels) {
     sce_metadata <- colData(sce_object) %>% as_tibble()
@@ -282,6 +283,62 @@ merge_batches <- function(sce_object1, sce_object2) {
     sce_merge
 }
 
+merge_counts <- function(sce_object1, sce_object2, sce_merged) {
+    shared_genes <- intersect(rownames(sce_object1), rownames(sce_object2))
+
+    sce_object1 <- sce_object1[shared_genes, is_in(colData(sce_object1)$Cell_ID, colData(sce_merged)$Cell_ID)]
+    sce_object1_rowdata <- rowData(sce_object1) %>% as_tibble()
+    sce_object1_rowdata_select <- select(sce_object1_rowdata, -HVG)
+    rowData(sce_object1) <- DataFrame(sce_object1_rowdata_select)
+    sce_object1_coldata <- colData(sce_object1) %>% as_tibble() %>% select(Cell_ID) %>% DataFrame()
+    colData(sce_object1) <- sce_object1_coldata
+    reducedDim(sce_object1, "corral") <- NULL
+
+    sce_object2 <- sce_object2[shared_genes, is_in(colData(sce_object2)$Cell_ID, colData(sce_merged)$Cell_ID)]
+    sce_object2_rowdata <- rowData(sce_object2) %>% as_tibble()
+    sce_object2_rowdata_select <- select(sce_object2_rowdata, -HVG)
+    rowData(sce_object2) <- DataFrame(sce_object2_rowdata_select)
+    sce_object2_coldata <- colData(sce_object2) %>% as_tibble() %>% select(Cell_ID) %>% DataFrame()
+    colData(sce_object2) <- sce_object2_coldata
+    reducedDim(sce_object2, "corral") <- NULL
+
+    shared_object <- cbind(sce_object1, sce_object2)
+    shared_object_subset <- shared_object[, is_in(colData(shared_object)$Cell_ID, colData(sce_merged)$Cell_ID)]
+    merged_metadata <- colData(sce_merged) %>% as_tibble()
+    colData(shared_object_subset) %<>% as_tibble %>% left_join(merged_metadata) %>% DataFrame()
+    shared_object_subset
+}
+
+pseudobulk_counts <- function(sce_object, min_ncells = 10L) {
+    celltype_metadata <- colData(sce_object) %>% as_tibble() %>% select(Sample, Celltype) %>% DataFrame()
+    sce_pseudobulk <- aggregateAcrossCells(sce_object, id = celltype_metadata)
+    sce_pseudobulk_filter <- sce_pseudobulk[, sce_pseudobulk$ncells >= min_ncells]
+    sce_pseudobulk_filter
+}
+
+edger_bulk_dge <- function(pseudobulk_object) {
+    edger_dge <- pseudoBulkDGE(pseudobulk_object,
+        label = pseudobulk_object$Celltype,
+        design = ~ batch + Status,
+        coef = "StatusFrozen",
+        condition = pseudobulk_object$Status,
+        row.data = rowData(pseudobulk_object),
+        method = "edgeR"
+    )
+    edger_dge
+}
+
+limma_dge <- function(pseudobulk_object) {
+    limma_dge <- pseudoBulkDGE(pseudobulk_object,
+        label = pseudobulk_object$Celltype,
+        design = ~ batch + Status,
+        coef = "StatusFrozen",
+        row.data = rowData(pseudobulk_object),
+        method = "voom"
+    )
+    limma_dge
+}
+
 # Read data and add gene annotation information
 all_samples_sce_tcells_v3 <- read_rds("../all_clustering/all_samples_sce_tcells_v3.rda")
 all_samples_sce_tcells_v2 <- read_rds("../all_clustering/all_samples_sce_tcells_v2.rda")
@@ -335,7 +392,12 @@ marker_genes <- c(
     "MAF",
 
     "NCAM1", # NK cells
-    "XCL1" # active NK cells
+    "XCL1", # active NK cells
+    "TCL1A",
+    "S100B",
+    "PLD4",
+    "SDC1",
+    "JCHAIN"
 )
 #nolint end
 
@@ -372,16 +434,27 @@ all_samples_celltype_labels <- c(
     "9" = "CD8+ T-cells",
     "10" = "Resting NK cells",
     "11" = "CD4+ T-cells",
-    "12" = "CD4+ T-cells",
+    "12" = "pDCs",
     "13" = "CD4+ T-cells",
     "14" = "Active NK cells"
 )
 #nolint end
 
 all_samples_sce_merge_celltypes <- add_celltype_labels(all_samples_sce_merge_leiden, all_samples_celltype_labels)
+qc_umap_plots("all_samples_merge/", all_samples_sce_merge_celltypes, "Celltype", var_type = "discrete", scale_name = "Cell type", file_name = "celltypes", label_var = "Celltype", plot_name = "", no_legend = TRUE)
 
 all_samples_silhouette <- reducedDim(all_samples_sce_merge_celltypes, "corrected") %>%
     approxSilhouette(all_samples_sce_merge_celltypes$Celltype) %>%
     as_tibble()
 colData(all_samples_sce_merge_celltypes)$silhouette_width <- all_samples_silhouette$width
+
+all_samples_sce_counts <- merge_counts(all_samples_sce_filtered_v3, all_samples_sce_filtered_v2, all_samples_sce_merge_celltypes)
+
+all_samples_pseudobulk <- pseudobulk_counts(all_samples_sce_counts)
+
+all_samples_edger_dge <- edger_bulk_dge(all_samples_pseudobulk)
+
+all_samples_limma_dge <- limma_dge(all_samples_pseudobulk)
+all_samples_limma_tibble <- as.list(all_samples_limma_dge) %>% map(as_tibble)
 write_rds(all_samples_sce_merge_celltypes, "all_samples_sce_merge_celltypes.rda")
+write_rds(all_samples_limma_tibble, "all_samples_limma_tibble.rda")
