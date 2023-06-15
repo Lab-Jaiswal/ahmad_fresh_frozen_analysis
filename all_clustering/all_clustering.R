@@ -23,6 +23,7 @@ library(RNOmni)
 library(VGAM)
 library(Seurat)
 library(broom)
+library(forestplot)
 
 library(Cairo)
 library(magrittr)
@@ -271,27 +272,37 @@ qc_plots <- function(sce_object, prefix) {
     qc_boxplot("doublet_scores", prefix, sce_object, fill_var = "Status", suffix = "_status", y_label = "Doublet scores")
 }
 
-merge_batches <- function(sce_object1, sce_object2) {
-    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "hvg")]
-    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "hvg")]
-    shared_genes <- intersect(sce_object1_hvgs, sce_object2_hvgs)
+get_hvgs <- function(sce_object) {
+    sce_object_hvgs <- rownames(sce_object)[rowSubset(sce_object, "hvg")]
+    sce_object_hvgs
+}
 
-    sce_object1 <- sce_object1[shared_genes, ]
-    sce_object2 <- sce_object2[shared_genes, ]
+subset_by_hvg <- function(sce_object, shared_genes) {
+    sce_object <- sce_object[shared_genes, ]
+    sce_object
+}
 
-    sce_batch_norm <- multiBatchNorm(sce_object1, sce_object2)
+extract_metadata <- function(sce_object) {
+    select(as_tibble(colData(sce_object)), Sample:doublet_scores)
+}
 
-    npcs_batch1 <- ncol(reducedDim(sce_object1, type = "corral"))
-    npcs_batch2 <- ncol(reducedDim(sce_object2, type = "corral"))
+merge_batches <- function(sce_objects) {
+    sce_object_hvgs <- map(sce_objects, get_hvgs)
+    shared_genes <- reduce(sce_object_hvgs, intersect)
+    print("Identified ", length(shared_genes), "shared genes.")
 
-    npcs_merge <- max(npcs_batch1, npcs_batch2)
+    sce_objects_subset <- map(sce_objects, shared_genes)
+
+    sce_batch_norm <- multiBatchNorm(sce_objects_subset)
+
+    npcs_merge <- map(sce_objects_subset, reducedDim, type = "corral") %>% map_int(ncol) %>% max
 
     set.seed(12345L)
     sce_merge <- fastMNN(sce_batch_norm, d = npcs_merge, cos.norm = FALSE, BSPARAM = ExactParam())
-    rowData(sce_merge) <- cbind(rowData(sce_object1), rowData(sce_merge))
+    rowData(sce_merge) <- cbind(rowData(sce_objects[[1]]), rowData(sce_merge))
 
-    original_metadata <- bind_rows(select(as_tibble(colData(sce_object1)), Sample:doublet_scores),
-                                   select(as_tibble(colData(sce_object2)), Sample:doublet_scores))
+    original_metadata <- map(sce_objects_subset, colData) %>% 
+        map(as_tibble) %>% map(select, Sample:doublet_scores) %>% bind_rows
     merged_metadata <- colData(sce_merge) %>%
         as_tibble() %>%
         bind_cols(original_metadata) %>%
