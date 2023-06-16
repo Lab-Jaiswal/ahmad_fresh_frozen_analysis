@@ -25,6 +25,7 @@ library(Seurat)
 library(broom)
 library(forestplot)
 
+library(tictoc)
 library(Cairo)
 library(magrittr)
 library(dplyr)
@@ -286,28 +287,62 @@ extract_metadata <- function(sce_object) {
     select(as_tibble(colData(sce_object)), Sample:doublet_scores)
 }
 
-merge_batches <- function(sce_objects) {
-    sce_object_hvgs <- map(sce_objects, get_hvgs)
-    shared_genes <- reduce(sce_object_hvgs, intersect)
-    print("Identified ", length(shared_genes), "shared genes.")
+merge_batches <- function(sce_object1, sce_object2) {
+    sce_object1_hvgs <- rownames(sce_object1)[rowSubset(sce_object1, "hvg")]
+    sce_object2_hvgs <- rownames(sce_object2)[rowSubset(sce_object2, "hvg")]
+    shared_genes <- intersect(sce_object1_hvgs, sce_object2_hvgs)
 
-    sce_objects_subset <- map(sce_objects, shared_genes)
+    sce_object1 <- sce_object1[shared_genes, ]
+    sce_object2 <- sce_object2[shared_genes, ]
 
-    sce_batch_norm <- multiBatchNorm(sce_objects_subset)
+    sce_batch_norm <- multiBatchNorm(sce_object1, sce_object2)
 
-    npcs_merge <- map(sce_objects_subset, reducedDim, type = "corral") %>% map_int(ncol) %>% max
+    npcs_batch1 <- ncol(reducedDim(sce_object1, type = "corral"))
+    npcs_batch2 <- ncol(reducedDim(sce_object2, type = "corral"))
+
+    npcs_merge <- max(npcs_batch1, npcs_batch2)
 
     set.seed(12345L)
     sce_merge <- fastMNN(sce_batch_norm, d = npcs_merge, cos.norm = FALSE, BSPARAM = ExactParam())
-    rowData(sce_merge) <- cbind(rowData(sce_objects[[1]]), rowData(sce_merge))
+    rowData(sce_merge) <- cbind(rowData(sce_object1), rowData(sce_merge))
 
-    original_metadata <- map(sce_objects_subset, colData) %>% 
-        map(as_tibble) %>% map(select, Sample:doublet_scores) %>% bind_rows
+    original_metadata <- bind_rows(select(as_tibble(colData(sce_object1)), Sample:doublet_scores),
+                                   select(as_tibble(colData(sce_object2)), Sample:doublet_scores))
     merged_metadata <- colData(sce_merge) %>%
         as_tibble() %>%
         bind_cols(original_metadata) %>%
         DataFrame()
     colData(sce_merge) <- merged_metadata
+
+    sce_merge
+}
+
+merge_samples <- function(sce_object, batch_column) {
+    tic("Batch normalization")
+    sce_batch_norm <- multiBatchNorm(sce_object, batch = colData(sce_object)[[batch_column]], normalize.all = TRUE, subset.row = rowData(sce_object)$hvg)
+    toc()
+
+    set.seed(12345L)
+    tic("Batch adjustment")
+    sce_merge <- fastMNN(sce_batch_norm,
+                         d = ncol(reducedDim(sce_object, "corral")),
+                         cos.norm = FALSE, BSPARAM = ExactParam(),
+                         batch = colData(sce_object)[[batch_column]],
+                         subset.row = rowData(sce_object)$hvg,
+                         correct.all = TRUE)
+    rowData(sce_merge) <- cbind(rowData(sce_object), rowData(sce_merge))
+    rm(sce_batch_norm)
+    gc()
+    toc()
+
+    original_metadata <- colData(sce_object) %>% as_tibble() %>% select(Sample:doublet_scores)
+    merged_metadata <- colData(sce_merge) %>%
+        as_tibble() %>%
+        bind_cols(original_metadata) %>%
+        DataFrame()
+    colData(sce_merge) <- merged_metadata
+    counts(sce_merge) <- counts(sce_object)
+    logcounts(sce_merge) <- logcounts(sce_object)
 
     sce_merge
 }
@@ -797,6 +832,15 @@ subclustered_cells <- union(all_samples_sce_merge_tcells$Cell_ID, all_samples_sc
 all_samples_sce_final_v3 <- all_samples_sce_celltypes_v3[, other_cells_v3 | is_in(colData(all_samples_sce_celltypes_v3)$Cell_ID, subclustered_cells)]
 all_samples_sce_final_v2 <- all_samples_sce_celltypes_v2[, other_cells_v2 | is_in(colData(all_samples_sce_celltypes_v2)$Cell_ID, subclustered_cells)]
 
+all_samples_sce_leiden_Psaila <- read_rds("/oak/stanford/groups/sjaiswal/jk/052023_scrnaseq_reanalysis/scRNAseq/Psaila/all_samples_sce_leiden_Psaila.rda") %>% logNormCounts
+
+find_markers <- findMarkers(all_samples_sce_leiden_Psaila, test.type = "t", pval.type = "any")
+find_markers_df <- map(find_markers, as_tibble, rownames = "ID") %>% bind_rows(.id = "Cluster") 
+find_markers_annot <- rowData(all_samples_sce_leiden_Psaila) %>% as_tibble() %>% select(Symbol, ID) %>% left_join(find_markers_df) 
+filter(find_markers_annot, Cluster == 10) %>% arrange(p.value) %>% filter(summary.logFC > 0)
+
+subset_samples_sce_Psaila <- all_samples_sce_leiden_Psaila[,is_in(colData(all_samples_sce_leiden_Psaila)$Sample, c("ID01", "ID02"))]
+all_samples_sce_leiden_Psaila_merge <- merge_samples(subset_samples_sce_Psaila, "Sample")
 all_samples_sce_merge <- merge_batches(all_samples_sce_final_v3, all_samples_sce_final_v2)
 write_rds(all_samples_sce_merge, "all_samples_sce_merge.rda")
 
